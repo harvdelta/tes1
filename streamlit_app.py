@@ -29,45 +29,8 @@ class BTCPriceTracker:
         ).hexdigest()
         return signature
     
-    def make_authenticated_request(self, method, path, params=None):
-        timestamp = str(int(time.time()))
-        url = f"{self.base_url}{path}"
-        
-        if method == "GET" and params:
-            query_string = "&".join([f"{k}={v}" for k, v in params.items()])
-            path_with_query = f"{path}?{query_string}"
-            url = f"{self.base_url}{path_with_query}"
-        else:
-            path_with_query = path
-        
-        signature = self.generate_signature(method, path_with_query, timestamp)
-        
-        headers = {
-            'api-key': self.api_key,
-            'timestamp': timestamp,
-            'signature': signature,
-            'Content-Type': 'application/json',
-            'User-Agent': 'BTC-Price-Tracker/1.0'
-        }
-        
-        try:
-            response = requests.get(url, headers=headers, timeout=15)
-            if self.debug:
-                st.write(f"🔍 DEBUG: Request URL: {url}")
-                st.write(f"🔍 DEBUG: Headers: {headers}")
-                st.write(f"🔍 DEBUG: Status Code: {response.status_code}")
-                st.write(f"🔍 DEBUG: Response: {response.text}")
-            
-            if response.status_code == 401:
-                st.error("Authentication failed. Please check your API credentials.")
-                return None
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            st.error(f"Request failed: {e}")
-            return None
-    
     def get_current_price(self):
+        """Fetch current BTC price"""
         try:
             url = f"{self.base_url}/v2/tickers/{self.symbol}"
             response = requests.get(url, timeout=10)
@@ -84,17 +47,17 @@ class BTCPriceTracker:
             st.error(f"Error fetching current price: {e}")
             return None
     
-    def get_price_at_time(self, target_datetime):
+    def get_exact_candle_close(self, target_datetime):
         """
-        Fetch historical BTC price at a specific datetime (UTC) using /v2/history/candles endpoint
+        Fetch the close price for the exact candle ending at target_datetime (UTC)
         """
         try:
             end_time = int(target_datetime.replace(tzinfo=timezone.utc).timestamp())
-            start_time = end_time - 60  # 1-minute window
+            start_time = end_time - 60  # 1-minute candle duration
             
             params = {
                 "symbol": self.symbol,
-                "resolution": "1m",  # ✅ Correct lowercase m
+                "resolution": "1m",
                 "start": start_time,
                 "end": end_time
             }
@@ -105,14 +68,15 @@ class BTCPriceTracker:
             data = response.json()
             
             if self.debug:
-                st.write(f"🔍 DEBUG: Fetching price for {target_datetime} UTC")
+                st.write(f"🔍 DEBUG: Fetching exact close for {target_datetime} UTC")
                 st.write("🔍 DEBUG: API URL:", response.url)
                 st.write("🔍 DEBUG: API Response:", data)
             
             if data.get("success") and "result" in data:
                 candles = data["result"]
                 if candles:
-                    return float(candles[-1]["close"])
+                    close_price = float(candles[-1]["close"])
+                    return close_price
             
             return None
         
@@ -145,40 +109,42 @@ def main():
     else:
         st.stop()
     
-    # Convert 5:29:59 IST and 5:29:59 PM IST to UTC
+    # Convert 5:29:59 IST & 5:29:59 PM IST to UTC
     today = datetime.now()
-    am_time = datetime(today.year, today.month, today.day, 5, 29, 59) - timedelta(hours=5, minutes=30)
-    pm_time = datetime(today.year, today.month, today.day, 17, 29, 59) - timedelta(hours=5, minutes=30)
+    am_time_utc = datetime(today.year, today.month, today.day, 5, 29, 0) - timedelta(hours=5, minutes=30)
+    pm_time_utc = datetime(today.year, today.month, today.day, 17, 29, 0) - timedelta(hours=5, minutes=30)
     
-    with st.spinner("Fetching historical AM price..."):
-        am_price = tracker.get_price_at_time(am_time)
+    # Fetch exact close prices
+    with st.spinner("Fetching 5:29 AM close price..."):
+        am_price = tracker.get_exact_candle_close(am_time_utc)
+    if am_price:
+        st.success(f"✅ 5:29 AM Close Price (Delta API): ${am_price:,.2f}")
     
-    with st.spinner("Fetching historical PM price..."):
-        pm_price = tracker.get_price_at_time(pm_time)
+    with st.spinner("Fetching 5:29 PM close price..."):
+        pm_price = tracker.get_exact_candle_close(pm_time_utc)
+    if pm_price:
+        st.success(f"✅ 5:29 PM Close Price (Delta API): ${pm_price:,.2f}")
     
+    # Show % change
     col1, col2 = st.columns(2)
     
     with col1:
         if am_price:
             am_change = tracker.calculate_percentage_change(am_price, current_price)
             st.metric(
-                "vs 5:29:59 AM",
+                "vs 5:29 AM",
                 f"${am_price:,.2f}",
                 delta=f"{am_change:+.2f}%" if am_change is not None else "N/A"
             )
-        else:
-            st.error("Could not fetch AM price")
     
     with col2:
         if pm_price:
             pm_change = tracker.calculate_percentage_change(pm_price, current_price)
             st.metric(
-                "vs 5:29:59 PM",
+                "vs 5:29 PM",
                 f"${pm_price:,.2f}",
                 delta=f"{pm_change:+.2f}%" if pm_change is not None else "N/A"
             )
-        else:
-            st.error("Could not fetch PM price")
 
 if __name__ == "__main__":
     main()
