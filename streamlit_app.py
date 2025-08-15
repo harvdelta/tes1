@@ -88,12 +88,12 @@ class BTCPriceTracker:
 
 def main():
     st.set_page_config(
-        page_title="BTC Price Tracker - 5:29 AM IST",
+        page_title="BTC Price Tracker - % Change from 5:29 AM",
         page_icon="₿",
         layout="wide"
     )
     
-    st.title("₿ Bitcoin Price Tracker – 5:29 AM IST Close")
+    st.title("₿ BTC Price Tracker – % Change from 5:29 AM IST")
     
     debug_mode = st.checkbox("Enable Debug Mode", value=False)
     tracker = BTCPriceTracker(debug=debug_mode)
@@ -102,29 +102,22 @@ def main():
     with st.spinner("Fetching current BTC price..."):
         current_price = tracker.get_current_price()
     
-    if current_price:
-        st.metric("Current BTC Futures Price", f"${current_price:,.2f}")
-    else:
+    if not current_price:
         st.stop()
     
-    # Convert 5:29:00 AM IST to UTC
+    # Fetch hidden AM price
     today = datetime.now()
     am_time_utc = datetime(today.year, today.month, today.day, 5, 29, 0) - timedelta(hours=5, minutes=30)
-    
-    # Fetch AM close price
-    with st.spinner("Fetching 5:29 AM close price..."):
+    with st.spinner("Fetching 5:29 AM price..."):
         am_price = tracker.get_exact_candle_close(am_time_utc)
     
-    if am_price:
-        st.success(f"✅ 5:29 AM Close Price (BTCUSDT Perpetual Futures, Delta API): ${am_price:,.2f}")
-        am_change = tracker.calculate_percentage_change(am_price, current_price)
-        st.metric(
-            "vs 5:29 AM",
-            f"${am_price:,.2f}",
-            delta=f"{am_change:+.2f}%" if am_change is not None else "N/A"
-        )
+    am_change = tracker.calculate_percentage_change(am_price, current_price) if am_price else None
+    
+    # Display only current price + % change
+    if am_change is not None:
+        st.metric("Current BTC Futures Price", f"${current_price:,.2f}", delta=f"{am_change:+.2f}%")
     else:
-        st.error("Could not fetch 5:29 AM price")
+        st.metric("Current BTC Futures Price", f"${current_price:,.2f}", delta="N/A")
 
 if __name__ == "__main__":
     main()
