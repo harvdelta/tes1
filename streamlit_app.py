@@ -89,13 +89,12 @@ class BTCPriceTracker:
         Fetch historical BTC price at a specific datetime (UTC) using /v2/history/candles endpoint
         """
         try:
-            # Convert datetime to timestamp in seconds
             end_time = int(target_datetime.replace(tzinfo=timezone.utc).timestamp())
-            start_time = end_time - 60  # 1-minute window before target time
+            start_time = end_time - 60  # 1-minute window
             
             params = {
                 "symbol": self.symbol,
-                "resolution": "1M",  # 1-minute candles
+                "resolution": "1m",  # ✅ Correct lowercase m
                 "start": start_time,
                 "end": end_time
             }
@@ -113,7 +112,6 @@ class BTCPriceTracker:
             if data.get("success") and "result" in data:
                 candles = data["result"]
                 if candles:
-                    # Use the close price of the last candle in range
                     return float(candles[-1]["close"])
             
             return None
@@ -139,7 +137,6 @@ def main():
     debug_mode = st.checkbox("Enable Debug Mode", value=False)
     tracker = BTCPriceTracker(debug=debug_mode)
     
-    # Fetch current price
     with st.spinner("Fetching current BTC price..."):
         current_price = tracker.get_current_price()
     
@@ -148,12 +145,11 @@ def main():
     else:
         st.stop()
     
-    # Define target times (IST -> convert to UTC)
+    # Convert 5:29:59 IST and 5:29:59 PM IST to UTC
     today = datetime.now()
     am_time = datetime(today.year, today.month, today.day, 5, 29, 59) - timedelta(hours=5, minutes=30)
     pm_time = datetime(today.year, today.month, today.day, 17, 29, 59) - timedelta(hours=5, minutes=30)
     
-    # Fetch historical prices
     with st.spinner("Fetching historical AM price..."):
         am_price = tracker.get_price_at_time(am_time)
     
