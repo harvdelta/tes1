@@ -30,7 +30,7 @@ class BTCPriceTracker:
         return signature
     
     def get_current_price(self):
-        """Fetch current BTC price"""
+        """Fetch current BTC futures price"""
         try:
             url = f"{self.base_url}/v2/tickers/{self.symbol}"
             response = requests.get(url, timeout=10)
@@ -48,9 +48,7 @@ class BTCPriceTracker:
             return None
     
     def get_exact_candle_close(self, target_datetime):
-        """
-        Fetch the close price for the exact candle ending at target_datetime (UTC)
-        """
+        """Fetch the close price for the exact candle ending at target_datetime (UTC)"""
         try:
             end_time = int(target_datetime.replace(tzinfo=timezone.utc).timestamp())
             start_time = end_time - 60  # 1-minute candle duration
@@ -77,7 +75,6 @@ class BTCPriceTracker:
                 if candles:
                     close_price = float(candles[-1]["close"])
                     return close_price
-            
             return None
         
         except Exception as e:
@@ -91,60 +88,43 @@ class BTCPriceTracker:
 
 def main():
     st.set_page_config(
-        page_title="BTC Price Tracker - Historical Times",
+        page_title="BTC Price Tracker - 5:29 AM IST",
         page_icon="₿",
         layout="wide"
     )
     
-    st.title("₿ Bitcoin Price Tracker (Exact Historical Times)")
+    st.title("₿ Bitcoin Price Tracker – 5:29 AM IST Close")
     
     debug_mode = st.checkbox("Enable Debug Mode", value=False)
     tracker = BTCPriceTracker(debug=debug_mode)
     
+    # Fetch current price
     with st.spinner("Fetching current BTC price..."):
         current_price = tracker.get_current_price()
     
     if current_price:
-        st.metric("Current BTC Price", f"${current_price:,.2f}")
+        st.metric("Current BTC Futures Price", f"${current_price:,.2f}")
     else:
         st.stop()
     
-    # Convert 5:29:59 IST & 5:29:59 PM IST to UTC
+    # Convert 5:29:00 AM IST to UTC
     today = datetime.now()
     am_time_utc = datetime(today.year, today.month, today.day, 5, 29, 0) - timedelta(hours=5, minutes=30)
-    pm_time_utc = datetime(today.year, today.month, today.day, 17, 29, 0) - timedelta(hours=5, minutes=30)
     
-    # Fetch exact close prices
+    # Fetch AM close price
     with st.spinner("Fetching 5:29 AM close price..."):
         am_price = tracker.get_exact_candle_close(am_time_utc)
+    
     if am_price:
-        st.success(f"✅ 5:29 AM Close Price (Delta API): ${am_price:,.2f}")
-    
-    with st.spinner("Fetching 5:29 PM close price..."):
-        pm_price = tracker.get_exact_candle_close(pm_time_utc)
-    if pm_price:
-        st.success(f"✅ 5:29 PM Close Price (Delta API): ${pm_price:,.2f}")
-    
-    # Show % change
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if am_price:
-            am_change = tracker.calculate_percentage_change(am_price, current_price)
-            st.metric(
-                "vs 5:29 AM",
-                f"${am_price:,.2f}",
-                delta=f"{am_change:+.2f}%" if am_change is not None else "N/A"
-            )
-    
-    with col2:
-        if pm_price:
-            pm_change = tracker.calculate_percentage_change(pm_price, current_price)
-            st.metric(
-                "vs 5:29 PM",
-                f"${pm_price:,.2f}",
-                delta=f"{pm_change:+.2f}%" if pm_change is not None else "N/A"
-            )
+        st.success(f"✅ 5:29 AM Close Price (BTCUSDT Perpetual Futures, Delta API): ${am_price:,.2f}")
+        am_change = tracker.calculate_percentage_change(am_price, current_price)
+        st.metric(
+            "vs 5:29 AM",
+            f"${am_price:,.2f}",
+            delta=f"{am_change:+.2f}%" if am_change is not None else "N/A"
+        )
+    else:
+        st.error("Could not fetch 5:29 AM price")
 
 if __name__ == "__main__":
     main()
