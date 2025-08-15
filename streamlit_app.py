@@ -24,24 +24,17 @@ class BTCPriceTracker:
     
     def generate_signature(self, method, path, timestamp, body=""):
         """Generate signature for Delta Exchange API"""
-        # Create the message to sign
         message = f"{method}{timestamp}{path}{body}"
-        
-        # Create HMAC-SHA256 signature
         signature = hmac.new(
             self.api_secret.encode('utf-8'),
             message.encode('utf-8'),
             hashlib.sha256
         ).hexdigest()
-        
         return signature
     
     def make_authenticated_request(self, method, path, params=None):
         """Make authenticated request to Delta Exchange API"""
-        # Generate timestamp (in seconds, not milliseconds for Delta Exchange)
         timestamp = str(int(time.time()))
-        
-        # Prepare URL and query string
         url = f"{self.base_url}{path}"
         query_string = ""
         
@@ -52,10 +45,8 @@ class BTCPriceTracker:
         else:
             path_with_query = path
         
-        # Generate signature
         signature = self.generate_signature(method, path_with_query, timestamp)
         
-        # Prepare headers
         headers = {
             'api-key': self.api_key,
             'timestamp': timestamp,
@@ -66,8 +57,6 @@ class BTCPriceTracker:
         
         try:
             response = requests.get(url, headers=headers, timeout=15)
-            
-            # Debug information
             st.write(f"Debug - Status Code: {response.status_code}")
             st.write(f"Debug - URL: {url}")
             st.write(f"Debug - Headers sent: {dict(headers)}")
@@ -89,7 +78,6 @@ class BTCPriceTracker:
     def get_current_price(self):
         """Fetch current BTC price (using public endpoint)"""
         try:
-            # Use public endpoint - no authentication needed
             url = f"{self.base_url}/v2/tickers/{self.symbol}"
             response = requests.get(url, timeout=10)
             response.raise_for_status()
@@ -106,10 +94,8 @@ class BTCPriceTracker:
             return None
     
     def get_historical_price_simple(self, target_time):
-        """Get historical price using simpler approach"""
+        """Estimate historical price based on target time"""
         try:
-            # For now, let's use a different approach
-            # Get 24h data and estimate the price
             url = f"{self.base_url}/v2/tickers/{self.symbol}"
             response = requests.get(url, timeout=10)
             response.raise_for_status()
@@ -117,18 +103,13 @@ class BTCPriceTracker:
             data = response.json()
             if data.get('success') and data.get('result'):
                 ticker = data['result']
-                
-                # Use 24h change to estimate morning price
                 current_price = float(ticker['close'])
                 change_24h = float(ticker.get('change_24h', 0))
                 
-                # Simple estimation based on target time
                 if "05:29:59" in target_time:
-                    # Assume morning price is roughly current - some portion of 24h change
-                    estimated_price = current_price - (change_24h * 0.3)  # Rough estimate
+                    estimated_price = current_price - (change_24h * 0.3)
                 elif "17:29:59" in target_time:
-                    # Evening price estimation
-                    estimated_price = current_price - (change_24h * 0.1)  # Rough estimate
+                    estimated_price = current_price - (change_24h * 0.1)
                 else:
                     estimated_price = current_price
                 
@@ -141,18 +122,16 @@ class BTCPriceTracker:
             return None
     
     def test_api_connection(self):
-        """Test API connection with a simple authenticated call"""
+        """Test API connection"""
         try:
-            # Try a simple authenticated endpoint
             data = self.make_authenticated_request("GET", "/v2/profile")
             return data
-            
         except Exception as e:
             st.error(f"API test failed: {e}")
             return None
     
     def calculate_percentage_change(self, old_price, new_price):
-        """Calculate percentage change between two prices"""
+        """Calculate percentage change"""
         if old_price is None or new_price is None:
             return None
         return ((new_price - old_price) / old_price) * 100
@@ -167,41 +146,32 @@ def main():
     st.title("₿ Bitcoin Price Tracker")
     st.markdown("**Delta Exchange API Integration**")
     
-    # Initialize tracker
     tracker = BTCPriceTracker()
     
-    # Test API connection
     st.subheader("🔧 API Connection Test")
-    
     if st.button("Test API Connection"):
         with st.spinner("Testing API connection..."):
             result = tracker.test_api_connection()
-            
         if result:
             if result.get('success'):
                 st.success("✅ API Connection Successful!")
                 if 'result' in result:
-                    user_data = result['result']
-                    st.json(user_data)  # Show user data
+                    st.json(result['result'])
             else:
                 st.error("❌ API returned unsuccessful response")
                 st.json(result)
         else:
             st.error("❌ API Connection Failed")
     
-    # Current price (always works - public endpoint)
     st.subheader("📊 Current BTC Price")
-    
     with st.spinner("Fetching current price..."):
         current_price = tracker.get_current_price()
     
     if current_price:
         st.metric("Current BTC Price", f"${current_price:,.2f}")
-        st.success(f"Successfully fetched current price: ${current_price:,.2f}")
     else:
         st.error("Failed to fetch current price")
     
-    # Historical price estimation
     st.subheader("📈 Price Comparisons (Estimated)")
     st.info("Note: Using price estimation while fixing historical data API")
     
@@ -209,36 +179,34 @@ def main():
         col1, col2 = st.columns(2)
         
         with col1:
-            morning_estimate = tracker.get_historical_price_simple("05:29:59")
-            if morning_estimate:
-                morning_change = tracker.calculate_percentage_change(morning_estimate, current_price)
+            time1 = st.text_input("Enter first time (HH:MM:SS)", "05:29:59")
+            estimate1 = tracker.get_historical_price_simple(time1)
+            if estimate1:
+                change1 = tracker.calculate_percentage_change(estimate1, current_price)
                 st.metric(
-                    "vs 5:29:59 AM (Est.)",
-                    f"${morning_estimate:,.2f}",
-                    delta=f"{morning_change:+.2f}%" if morning_change else "N/A"
+                    f"vs {time1} (Est.)",
+                    f"${estimate1:,.2f}",
+                    delta=f"{change1:+.2f}%" if change1 else "N/A"
                 )
         
         with col2:
-            evening_estimate = tracker.get_historical_price_simple("17:29:59")
-            if evening_estimate:
-                evening_change = tracker.calculate_percentage_change(evening_estimate, current_price)
+            time2 = st.text_input("Enter second time (HH:MM:SS)", "17:29:59")
+            estimate2 = tracker.get_historical_price_simple(time2)
+            if estimate2:
+                change2 = tracker.calculate_percentage_change(estimate2, current_price)
                 st.metric(
-                    "vs 5:29:59 PM (Est.)",
-                    f"${evening_estimate:,.2f}",
-                    delta=f"{evening_change:+.2f}%" if evening_change else "N/A"
+                    f"vs {time2} (Est.)",
+                    f"${estimate2:,.2f}",
+                    delta=f"{change2:+.2f}%" if change2 else "N/A"
                 )
     
-    # Debug section
     st.subheader("🐛 Debug Information")
-    
     if st.button("Show Debug Info"):
         st.write("**API Configuration:**")
         st.write(f"Base URL: {tracker.base_url}")
         st.write(f"Symbol: {tracker.symbol}")
         st.write(f"API Key present: {'Yes' if tracker.api_key else 'No'}")
         st.write(f"API Secret present: {'Yes' if tracker.api_secret else 'No'}")
-        
-        # Test signature generation
         test_timestamp = str(int(time.time()))
         test_signature = tracker.generate_signature("GET", "/v2/profile", test_timestamp)
         st.write(f"Sample signature: {test_signature}")
