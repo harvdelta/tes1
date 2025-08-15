@@ -3,17 +3,19 @@ import requests
 import time
 import hmac
 import hashlib
+from datetime import datetime, timedelta, timezone
 
 class BTCPriceTracker:
-    def __init__(self):
+    def __init__(self, debug=False):
         self.base_url = "https://api.delta.exchange"
         self.symbol = "BTCUSDT"
+        self.debug = debug
         
-        # Get API credentials from Streamlit secrets
         try:
             self.api_key = st.secrets["DELTA_API_KEY"]
             self.api_secret = st.secrets["DELTA_API_SECRET"]
-            st.success("🔑 API credentials loaded successfully")
+            if self.debug:
+                st.success("🔑 API credentials loaded successfully")
         except KeyError as e:
             st.error(f"❌ Missing API credential: {e}")
             st.stop()
@@ -50,6 +52,12 @@ class BTCPriceTracker:
         
         try:
             response = requests.get(url, headers=headers, timeout=15)
+            if self.debug:
+                st.write(f"🔍 DEBUG: Request URL: {url}")
+                st.write(f"🔍 DEBUG: Headers: {headers}")
+                st.write(f"🔍 DEBUG: Status Code: {response.status_code}")
+                st.write(f"🔍 DEBUG: Response: {response.text}")
+            
             if response.status_code == 401:
                 st.error("Authentication failed. Please check your API credentials.")
                 return None
@@ -65,6 +73,8 @@ class BTCPriceTracker:
             response = requests.get(url, timeout=10)
             response.raise_for_status()
             data = response.json()
+            if self.debug:
+                st.write("🔍 DEBUG: Current Price API Response", data)
             if data.get('success') and data.get('result'):
                 return float(data['result']['close'])
             else:
@@ -74,6 +84,44 @@ class BTCPriceTracker:
             st.error(f"Error fetching current price: {e}")
             return None
     
+    def get_price_at_time(self, target_datetime):
+        """
+        Fetch historical BTC price at a specific datetime (UTC) using /v2/history/candles endpoint
+        """
+        try:
+            # Convert datetime to timestamp in seconds
+            end_time = int(target_datetime.replace(tzinfo=timezone.utc).timestamp())
+            start_time = end_time - 60  # 1-minute window before target time
+            
+            params = {
+                "symbol": self.symbol,
+                "resolution": "1M",  # 1-minute candles
+                "start": start_time,
+                "end": end_time
+            }
+            
+            url = f"{self.base_url}/v2/history/candles"
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            
+            if self.debug:
+                st.write(f"🔍 DEBUG: Fetching price for {target_datetime} UTC")
+                st.write("🔍 DEBUG: API URL:", response.url)
+                st.write("🔍 DEBUG: API Response:", data)
+            
+            if data.get("success") and "result" in data:
+                candles = data["result"]
+                if candles:
+                    # Use the close price of the last candle in range
+                    return float(candles[-1]["close"])
+            
+            return None
+        
+        except Exception as e:
+            st.error(f"Error fetching historical price: {e}")
+            return None
+    
     def calculate_percentage_change(self, old_price, new_price):
         if old_price is None or new_price is None:
             return None
@@ -81,85 +129,60 @@ class BTCPriceTracker:
 
 def main():
     st.set_page_config(
-        page_title="BTC Price Tracker - Delta Exchange",
+        page_title="BTC Price Tracker - Historical Times",
         page_icon="₿",
         layout="wide"
     )
     
-    st.title("₿ Bitcoin Price Tracker")
-    st.markdown("**Delta Exchange API Integration**")
+    st.title("₿ Bitcoin Price Tracker (Exact Historical Times)")
     
-    tracker = BTCPriceTracker()
+    debug_mode = st.checkbox("Enable Debug Mode", value=False)
+    tracker = BTCPriceTracker(debug=debug_mode)
     
-    # API connection test
-    st.subheader("🔧 API Connection Test")
-    if st.button("Test API Connection"):
-        with st.spinner("Testing API connection..."):
-            result = tracker.make_authenticated_request("GET", "/v2/profile")
-        if result:
-            if result.get('success'):
-                st.success("✅ API Connection Successful!")
-                st.json(result.get('result', {}))
-            else:
-                st.error("❌ API returned unsuccessful response")
-                st.json(result)
-        else:
-            st.error("❌ API Connection Failed")
-    
-    # Current price
-    st.subheader("📊 Current BTC Price")
-    with st.spinner("Fetching current price..."):
+    # Fetch current price
+    with st.spinner("Fetching current BTC price..."):
         current_price = tracker.get_current_price()
     
     if current_price:
         st.metric("Current BTC Price", f"${current_price:,.2f}")
     else:
-        st.error("Failed to fetch current price")
+        st.stop()
     
-    # Manual input for historical prices
-    st.subheader("✏️ Enter Historical BTC Prices")
-    morning_price = st.number_input(
-        "BTC price at 5:29:59 AM",
-        min_value=0.0, format="%.2f", step=0.01
-    )
-    evening_price = st.number_input(
-        "BTC price at 5:29:59 PM",
-        min_value=0.0, format="%.2f", step=0.01
-    )
+    # Define target times (IST -> convert to UTC)
+    today = datetime.now()
+    am_time = datetime(today.year, today.month, today.day, 5, 29, 59) - timedelta(hours=5, minutes=30)
+    pm_time = datetime(today.year, today.month, today.day, 17, 29, 59) - timedelta(hours=5, minutes=30)
     
-    # Calculate percentage changes
-    if current_price and (morning_price > 0 or evening_price > 0):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if morning_price > 0:
-                morning_change = tracker.calculate_percentage_change(morning_price, current_price)
-                st.metric(
-                    "vs 5:29:59 AM",
-                    f"${morning_price:,.2f}",
-                    delta=f"{morning_change:+.2f}%" if morning_change is not None else "N/A"
-                )
-        
-        with col2:
-            if evening_price > 0:
-                evening_change = tracker.calculate_percentage_change(evening_price, current_price)
-                st.metric(
-                    "vs 5:29:59 PM",
-                    f"${evening_price:,.2f}",
-                    delta=f"{evening_change:+.2f}%" if evening_change is not None else "N/A"
-                )
+    # Fetch historical prices
+    with st.spinner("Fetching historical AM price..."):
+        am_price = tracker.get_price_at_time(am_time)
     
-    # Debug
-    st.subheader("🐛 Debug Information")
-    if st.button("Show Debug Info"):
-        st.write("**API Configuration:**")
-        st.write(f"Base URL: {tracker.base_url}")
-        st.write(f"Symbol: {tracker.symbol}")
-        st.write(f"API Key present: {'Yes' if tracker.api_key else 'No'}")
-        st.write(f"API Secret present: {'Yes' if tracker.api_secret else 'No'}")
-        test_timestamp = str(int(time.time()))
-        test_signature = tracker.generate_signature("GET", "/v2/profile", test_timestamp)
-        st.write(f"Sample signature: {test_signature}")
+    with st.spinner("Fetching historical PM price..."):
+        pm_price = tracker.get_price_at_time(pm_time)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if am_price:
+            am_change = tracker.calculate_percentage_change(am_price, current_price)
+            st.metric(
+                "vs 5:29:59 AM",
+                f"${am_price:,.2f}",
+                delta=f"{am_change:+.2f}%" if am_change is not None else "N/A"
+            )
+        else:
+            st.error("Could not fetch AM price")
+    
+    with col2:
+        if pm_price:
+            pm_change = tracker.calculate_percentage_change(pm_price, current_price)
+            st.metric(
+                "vs 5:29:59 PM",
+                f"${pm_price:,.2f}",
+                delta=f"{pm_change:+.2f}%" if pm_change is not None else "N/A"
+            )
+        else:
+            st.error("Could not fetch PM price")
 
 if __name__ == "__main__":
     main()
