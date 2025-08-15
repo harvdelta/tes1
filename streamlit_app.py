@@ -88,12 +88,12 @@ class BTCPriceTracker:
 
 def main():
     st.set_page_config(
-        page_title="BTC Price Tracker - % Change from 5:29 AM",
+        page_title="BTC Price Tracker",
         page_icon="₿",
         layout="wide"
     )
     
-    st.title("₿ BTC Price Tracker – % Change from 5:29 AM IST")
+    st.title("₿ BTC Price Tracker")
     
     debug_mode = st.checkbox("Enable Debug Mode", value=False)
     tracker = BTCPriceTracker(debug=debug_mode)
